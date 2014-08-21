@@ -1,0 +1,111 @@
+Predicting Exercise Quality
+===========================
+
+## Summary
+
+In this analysis, I use the Human Activity Recognition 
+<a href="http://groupware.les.inf.puc-rio.br/har">Weightlifting Exercises data set</a>.
+This data set has measurements on six young healthy male participants who perform 
+unilateral dumbbell bicep curls while wearing accelerometers on the belt, forearm, 
+arm, and dumbbell. Each of the participants performs the exercise correctly ("classe" 
+A in the data set) and in four incorrect ways, corresponding to one of four 
+common mistakes ("classes" B-E) repeatedly.
+
+I build a random forest machine learning model to classify observations into one 
+of the five classes. Since the random forest package in R already performs 
+cross-validation internally, I do not break up the training data set into smaller 
+training and cross-validation sets.
+
+After cleaning and processing, I end up with a model with 52 predictors. The training
+set error rate is 0% while the out-of-bag estimate of the error rate is 0.42%. Thus 
+it seems that the model doesn't succumb to overfitting despite the large number 
+of predictors and that it predicts quite well.
+
+## Loading and Processing
+
+The original "pml-training.csv" file has both NA and "" for missing values. Despite
+my best efforts, I was unable to read the file in and have R treat both NA and ""
+as missing values. To address this problem, I had to resort to replacing "" in the
+file with NA before loading into R. I also load some required packages.
+
+```{r load, message=FALSE}
+training <- read.csv(paste0(getwd(),"/pml-training.csv"))
+testing <- read.csv(paste0(getwd(),"/pml-testing.csv"))
+
+library(caret)
+library(ggplot2)
+```
+
+As explained previously, the random forest package (or the random forest method
+in the caret package) already performs cross-validation internally. <a href="http://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm#ooberr">Here</a> is a statement by the authors 
+attesting to that.
+
+Inspecting the training set, I see that 100 out of 160 variables have 19,216 
+missing values out of 19,622 total observations (98%). Given the low number of 
+observations for these variables, they are unlikely to be very informative and so 
+I drop them out of the set of potential predictors. This leaves me with 59 possible 
+predictors.
+
+```{r}
+nas <- as.data.frame(table(apply(training, 2, function(x) {sum(is.na(x))})))
+colnames(nas) <- c("num. NAs","num. vars")
+print(nas)
+
+tidyTrain <- training[,colSums(is.na(training)) == 0]
+```
+
+Next, I search for variables with near-zero variance and exclude them as they have 
+little to no predictive power. Then, I also drop the observation index, participant 
+name, window number, and all timestamp variables as they should have no bearing 
+on how well an exercise is performed. I am left with 52 predictors.
+
+```{r}
+nzv <- nearZeroVar(tidyTrain)
+tidyTrain <- tidyTrain[,-nzv]
+
+tidyTrain <- tidyTrain[,-c(1:6)]
+```
+
+## Modelling and Results
+
+Even though 52 seems like a large number of predictors, I have no theoretical 
+preference for any of the remaining predictors. Therefore, I build a random forest 
+model with all remaining predictors. If the out-of-bag estimate of the error rate 
+indicates that the model may have been overfitted, I will revisit predictor selection.
+
+```{r, cache=TRUE}
+set.seed(8888)
+rfmodel <- train(classe ~ ., method = "rf", data = tidyTrain)
+```
+
+First of all, I see that the training set error is 0%. Since I used the training set 
+to build the model, a low error rate is expected, but 0% is nonetheless impressive.
+
+```{r, message=FALSE, warning=FALSE}
+confusionMatrix(training$classe,predict(rfmodel,training))
+```
+
+Next, I look at the final model as what I am really interested in is the out-of-bag 
+estimate of the error. I expect it to be small, but still greater than the error rate 
+for the training set.
+
+```{r}
+print(rfmodel$finalModel)
+```
+
+The model built 500 trees and 2 variables were tried at each split. The out-of-bag 
+estimate of the error rate is 0.42%. This is greater than the training set error 
+rate as expected. The model achieves approximately 99.58% accuracy and so I do not 
+build any more models, although I believe that a model with less predictors can 
+achieve a similar level of accuracy.
+
+As a final step, I use the model to classify a set of 20 test observations. Submitting 
+the predictions to an automated grader, the model gets 20 out 20 right.
+
+```{r}
+as.character(predict(rfmodel,newdata=testing))
+```
+
+## References
+
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6
